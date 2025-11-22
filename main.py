@@ -1,8 +1,3 @@
-"""
-AniVish CLI Test Harness
-Comprehensive testing of all core features before GUI implementation.
-"""
-
 import sys
 import os
 
@@ -159,7 +154,9 @@ def handle_command(vm: VideoManager, command: str) -> bool:
     
     # ==================== PLAYBACK ====================
     if cmd == "p":
-        if vm.get_state() == PlaybackState.PLAYING:
+        # FIX: Use is_playing() which directly queries VLC state
+        # instead of get_state() which relies on async event updates
+        if vm.is_playing():
             vm.pause()
             print("Paused")
         else:
@@ -392,6 +389,41 @@ def setup_event_handlers(vm: VideoManager):
     vm.on('on_buffering', on_buffering)
 
 
+def get_video_path_from_user(vm: VideoManager) -> str:
+    """
+    Get video path from user input, supporting recent file selection.
+    
+    Returns:
+        The video path to load
+    """
+    # Show recent files if available
+    recent = vm.get_recent_files()
+    if recent:
+        print("\nRecent files (enter number to select):")
+        for i, path in enumerate(recent[:5], 1):
+            # Show truncated path for display, but store full path
+            display_name = os.path.basename(path)
+            print(f"  {i}. {display_name}")
+            print(f"     {path}")
+        print()
+    
+    user_input = input("Enter path to video (or URL, or recent # 1-5): ").strip()
+    user_input = user_input.strip('"').strip("'")
+    
+    # FIX: Check if user entered a number to select from recent files
+    if recent and user_input.isdigit():
+        idx = int(user_input)
+        if 1 <= idx <= len(recent[:5]):
+            selected_path = recent[idx - 1]
+            print(f"Selected: {selected_path}")
+            return selected_path
+        else:
+            print(f"Invalid selection. Enter 1-{min(5, len(recent))}")
+            return get_video_path_from_user(vm)  # Retry
+    
+    return user_input
+
+
 def main():
     print("=" * 60)
     print("           AniVish Video Player - CLI Test Harness")
@@ -409,16 +441,12 @@ def main():
     if len(sys.argv) > 1:
         video_path = sys.argv[1]
     else:
-        # Show recent files if available
-        recent = vm.get_recent_files()
-        if recent:
-            print("\nRecent files:")
-            for i, path in enumerate(recent[:5], 1):
-                print(f"  {i}. {os.path.basename(path)}")
-            print()
-        
-        video_path = input("Enter path to video (or URL): ").strip()
-        video_path = video_path.strip('"').strip("'")
+        video_path = get_video_path_from_user(vm)
+    
+    if not video_path:
+        print("No video path provided. Exiting.")
+        vm.release()
+        return
     
     # Load media
     try:
