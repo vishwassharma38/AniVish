@@ -1,0 +1,85 @@
+# --------------------
+# PYTHON
+# --------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.so
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+pip-wheel-metadata/
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv/
+.virtualenv/
+
+# Byte-compiled / optimized / DLL files
+*.pyc
+*.pyo
+*.pyd
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+coverage.xml
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# MyPy, Pyre, Pytype
+.mypy_cache/
+.pyre/
+.pytype/
+
+# --------------------
+# EDITOR / IDE
+# --------------------
+# VS Code
+.vscode/
+.history/
+
+# PyCharm
+.idea/
+*.iml
+
+# --------------------
+# LOG FILES
+# --------------------
+*.log
+
+# --------------------
+# OPERATING SYSTEM
+# --------------------
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# --------------------
+# CUSTOM TEMP FOLDERS
+# --------------------
+temp/
+tmp/
+
+# --------------------
+# PROJECT SPECIFIC
+# --------------------
+video/
