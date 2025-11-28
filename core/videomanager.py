@@ -139,54 +139,62 @@ class VideoManager:
         """Wire up VLC event callbacks."""
         em = self._backend.get_event_manager()
         
-        em.event_attach(vlc.EventType.MediaPlayerPlaying, self._on_vlc_playing)
-        em.event_attach(vlc.EventType.MediaPlayerPaused, self._on_vlc_paused)
-        em.event_attach(vlc.EventType.MediaPlayerStopped, self._on_vlc_stopped)
-        em.event_attach(vlc.EventType.MediaPlayerEndReached, self._on_vlc_ended)
-        em.event_attach(vlc.EventType.MediaPlayerEncounteredError, self._on_vlc_error)
-        em.event_attach(vlc.EventType.MediaPlayerTimeChanged, self._on_vlc_time_changed)
-        em.event_attach(vlc.EventType.MediaPlayerPositionChanged, self._on_vlc_position_changed)
-        em.event_attach(vlc.EventType.MediaPlayerBuffering, self._on_vlc_buffering)
-        em.event_attach(vlc.EventType.MediaPlayerVout, self._on_vlc_vout)
+        # FIXED: Use lambda to ensure proper callback context
+        em.event_attach(vlc.EventType.MediaPlayerPlaying, lambda e: self._on_vlc_playing(e))
+        em.event_attach(vlc.EventType.MediaPlayerPaused, lambda e: self._on_vlc_paused(e))
+        em.event_attach(vlc.EventType.MediaPlayerStopped, lambda e: self._on_vlc_stopped(e))
+        em.event_attach(vlc.EventType.MediaPlayerEndReached, lambda e: self._on_vlc_ended(e))
+        em.event_attach(vlc.EventType.MediaPlayerEncounteredError, lambda e: self._on_vlc_error(e))
+        em.event_attach(vlc.EventType.MediaPlayerTimeChanged, lambda e: self._on_vlc_time_changed(e))
+        em.event_attach(vlc.EventType.MediaPlayerPositionChanged, lambda e: self._on_vlc_position_changed(e))
+        em.event_attach(vlc.EventType.MediaPlayerBuffering, lambda e: self._on_vlc_buffering(e))
+        em.event_attach(vlc.EventType.MediaPlayerVout, lambda e: self._on_vlc_vout(e))
         
-        logger.debug("VLC events wired up")
+        logger.debug("VLC events wired up with lambda wrappers")
 
     def _emit(self, event_name: str, *args, **kwargs):
         """Emit an event to all registered callbacks."""
-        for callback in self._callbacks.get(event_name, []):
+        callbacks = self._callbacks.get(event_name, [])
+        logger.debug(f"Emitting event '{event_name}' to {len(callbacks)} callbacks")
+        for callback in callbacks:
             try:
                 callback(*args, **kwargs)
             except Exception as e:
-                logger.error(f"Callback error for {event_name}: {e}")
+                logger.error(f"Callback error for {event_name}: {e}", exc_info=True)
 
     def _set_state(self, new_state: PlaybackState):
         """Update state and emit state change event."""
         if self._state != new_state:
             old_state = self._state
             self._state = new_state
-            logger.debug(f"State changed: {old_state.name} -> {new_state.name}")
+            logger.info(f"State changed: {old_state.name} -> {new_state.name}")
             self._emit('on_state_changed', old_state, new_state)
 
     # VLC Event Handlers
     def _on_vlc_playing(self, event):
+        logger.debug("VLC event: Playing")
         self._set_state(PlaybackState.PLAYING)
         self._update_video_size()
         self._emit('on_playing')
 
     def _on_vlc_paused(self, event):
+        logger.debug("VLC event: Paused")
         self._set_state(PlaybackState.PAUSED)
         self._emit('on_paused')
 
     def _on_vlc_stopped(self, event):
+        logger.debug("VLC event: Stopped")
         self._set_state(PlaybackState.STOPPED)
         self._emit('on_stopped')
 
     def _on_vlc_ended(self, event):
+        logger.debug("VLC event: Ended")
         self._set_state(PlaybackState.ENDED)
         logger.info("Playback ended")
         self._emit('on_ended')
 
     def _on_vlc_error(self, event):
+        logger.error("VLC event: Error")
         self._last_error = "Playback error occurred"
         self._set_state(PlaybackState.ERROR)
         logger.error(f"VLC error: {self._last_error}")
@@ -204,20 +212,29 @@ class VideoManager:
         if self._state != PlaybackState.BUFFERING:
             self._set_state(PlaybackState.BUFFERING)
             logger.debug("Buffering started")
-        self._emit('on_buffering', event.u.new_cache)
+        # FIXED: Safely access event attribute
+        try:
+            cache = event.u.new_cache if hasattr(event, 'u') else 0
+        except:
+            cache = 0
+        self._emit('on_buffering', cache)
 
     def _on_vlc_vout(self, event):
+        logger.debug("VLC event: Video output ready")
         self._update_video_size()
 
     def _update_video_size(self):
         """Update cached video dimensions."""
-        w = self._backend.player.video_get_width()
-        h = self._backend.player.video_get_height()
-        if w > 0 and h > 0 and (w != self._video_width or h != self._video_height):
-            self._video_width = w
-            self._video_height = h
-            logger.debug(f"Video size: {w}x{h}")
-            self._emit('on_video_size_changed', w, h)
+        try:
+            w = self._backend.player.video_get_width()
+            h = self._backend.player.video_get_height()
+            if w > 0 and h > 0 and (w != self._video_width or h != self._video_height):
+                self._video_width = w
+                self._video_height = h
+                logger.info(f"Video size: {w}x{h}")
+                self._emit('on_video_size_changed', w, h)
+        except Exception as e:
+            logger.debug(f"Could not get video size: {e}")
 
     # Public event registration
     def on(self, event_name: str, callback: Callable):
@@ -381,7 +398,7 @@ class VideoManager:
         except Exception as e:
             self._last_error = str(e)
             self._set_state(PlaybackState.ERROR)
-            logger.error(f"Failed to load media: {e}")
+            logger.error(f"Failed to load media: {e}", exc_info=True)
             raise MediaLoadError(f"Failed to load media: {e}")
 
     def load_url(self, url: str) -> bool:
@@ -401,19 +418,23 @@ class VideoManager:
         if self._current_source is None:
             logger.warning("Cannot play: no media loaded")
             return False
+        logger.info("Play requested")
         result = self._backend.play()
         return result == 0
 
     def pause(self):
         """Pause playback."""
+        logger.info("Pause requested")
         self._backend.pause()
 
     def stop(self):
         """Stop playback."""
+        logger.info("Stop requested")
         self._backend.stop()
 
     def toggle_play_pause(self):
         """Toggle between play and pause."""
+        logger.info(f"Toggle play/pause - current state: {self._state.name}")
         if self._state == PlaybackState.PLAYING:
             self.pause()
         else:
@@ -422,35 +443,41 @@ class VideoManager:
     def seek(self, position_ms: int):
         """Seek to position in milliseconds."""
         self._backend.seek(position_ms)
-        logger.debug(f"Seek to: {position_ms}ms")
+        logger.info(f"Seek to: {position_ms}ms")
 
     def seek_relative(self, offset_ms: int):
         """Seek relative to current position."""
         self._backend.seek_relative(offset_ms)
+        logger.debug(f"Relative seek: {offset_ms:+d}ms")
 
     def seek_percent(self, percent: float):
         """Seek to percentage of total duration (0-100)."""
         self._backend.set_position(percent / 100.0)
+        logger.debug(f"Seek to {percent:.1f}%")
 
     def skip_forward(self):
         """Skip forward by configured short interval."""
         interval = self._config.playback.skip_interval_short
         self.seek_relative(interval)
+        logger.debug(f"Skip forward {interval}ms")
 
     def skip_backward(self):
         """Skip backward by configured short interval."""
         interval = self._config.playback.skip_interval_short
         self.seek_relative(-interval)
+        logger.debug(f"Skip backward {interval}ms")
 
     def skip_forward_long(self):
         """Skip forward by configured long interval."""
         interval = self._config.playback.skip_interval_long
         self.seek_relative(interval)
+        logger.debug(f"Skip forward (long) {interval}ms")
 
     def skip_backward_long(self):
         """Skip backward by configured long interval."""
         interval = self._config.playback.skip_interval_long
         self.seek_relative(-interval)
+        logger.debug(f"Skip backward (long) {interval}ms")
 
     def get_current_time(self) -> int:
         """Get current position in milliseconds."""
@@ -467,7 +494,7 @@ class VideoManager:
     def set_playback_speed(self, rate: float):
         """Set playback speed (0.25 to 4.0)."""
         self._backend.set_playback_speed(rate)
-        logger.debug(f"Playback speed: {rate}x")
+        logger.info(f"Playback speed: {rate}x")
 
     def get_playback_speed(self) -> float:
         """Get current playback speed."""
@@ -488,6 +515,7 @@ class VideoManager:
     def set_volume(self, vol: int):
         """Set volume (0-100)."""
         self._backend.set_volume(vol)
+        logger.debug(f"Volume set to {vol}")
 
     def get_volume(self) -> int:
         """Get current volume."""
@@ -496,14 +524,17 @@ class VideoManager:
     def mute(self):
         """Mute audio."""
         self._backend.mute()
+        logger.debug("Muted")
 
     def unmute(self):
         """Unmute audio."""
         self._backend.unmute()
+        logger.debug("Unmuted")
 
     def toggle_mute(self):
         """Toggle mute state."""
         self._backend.toggle_mute()
+        logger.debug(f"Mute toggled - now {'muted' if self._backend.is_muted() else 'unmuted'}")
 
     def is_muted(self) -> bool:
         """Check if muted."""
@@ -521,13 +552,13 @@ class VideoManager:
         """Set audio track by ID."""
         result = self._backend.set_audio_track(track_id)
         if result:
-            logger.debug(f"Audio track set: {track_id}")
+            logger.info(f"Audio track set: {track_id}")
         return result
 
     def set_audio_delay(self, delay_ms: int):
         """Set audio delay in milliseconds."""
         self._backend.set_audio_delay(delay_ms * 1000)
-        logger.debug(f"Audio delay: {delay_ms}ms")
+        logger.info(f"Audio delay: {delay_ms}ms")
 
     def get_audio_delay(self) -> int:
         """Get audio delay in milliseconds."""
@@ -552,7 +583,7 @@ class VideoManager:
         """
         result = self._backend.set_subtitle_track(track_id)
         if result:
-            logger.debug(f"Subtitle track set: {track_id}")
+            logger.info(f"Subtitle track set: {track_id}")
         return result
 
     def disable_subtitles(self):
@@ -610,7 +641,7 @@ class VideoManager:
         Positive = subtitles appear later, Negative = earlier.
         """
         self._backend.set_subtitle_delay(delay_ms * 1000)
-        logger.debug(f"Subtitle delay: {delay_ms}ms")
+        logger.info(f"Subtitle delay: {delay_ms}ms")
 
     def get_subtitle_delay(self) -> int:
         """Get subtitle delay in milliseconds."""
@@ -646,7 +677,7 @@ class VideoManager:
             ratio: Ratio string like "16:9", "4:3", or None for default
         """
         self._backend.player.video_set_aspect_ratio(ratio)
-        logger.debug(f"Aspect ratio: {ratio}")
+        logger.info(f"Aspect ratio: {ratio}")
 
     # ==========================================
     # Video Output Integration
@@ -676,7 +707,7 @@ class VideoManager:
         elif platform == 'macos':
             self._backend.set_nsobject(handle)
         
-        logger.debug(f"Video output set for platform: {platform}")
+        logger.info(f"Video output set for platform: {platform}")
 
     # ==========================================
     # Error Handling
