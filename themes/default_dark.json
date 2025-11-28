@@ -1,0 +1,38 @@
+{
+  "name": "Default Dark",
+  "author": "AniVish",
+  "version": "1.0",
+
+  "colors": {
+    "primary": "#5080C8",
+    "secondary": "#3260A0",
+    "accent": "#64AAFF",
+    "background": "#141428",
+    "surface": "#1E1E3C",
+    "text": "#FFFFFF",
+    "text_secondary": "#B0B0C0",
+    "error": "#FF5050",
+    "success": "#50FF80"
+  },
+
+  "glass": {
+    "blur_radius": 30,
+    "opacity": 0.85,
+    "glow_strength": 100,
+    "border_opacity": 0.4
+  },
+
+  "fonts": {
+    "main": "Segoe UI",
+    "monospace": "Consolas",
+    "size_normal": 12,
+    "size_large": 14,
+    "size_title": 16
+  },
+
+  "spacing": {
+    "small": 4,
+    "medium": 8,
+    "large": 16
+  }
+}

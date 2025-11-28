@@ -26,6 +26,7 @@ class AudioConfig:
     preferred_audio_track: int = -1  # -1 = auto/default
     audio_delay_ms: int = 0
     normalize_audio: bool = False
+    preferred_language: str = "eng"  # FIXED: Added missing field
 
 
 @dataclass

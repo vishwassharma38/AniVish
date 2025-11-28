@@ -1,5 +1,10 @@
 import sys
 import os
+from pathlib import Path
+from ui.app import main
+
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent))
 
 # Initialize logging first
 from core.logger import configure_logging, get_logger
