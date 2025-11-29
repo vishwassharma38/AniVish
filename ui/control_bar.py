@@ -2,7 +2,7 @@ from PyQt5.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QSlider,
     QLabel, QStyle, QApplication, QToolButton
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QSize
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QSize, pyqtSlot
 from PyQt5.QtGui import QIcon, QFont, QColor
 
 from core.videomanager import VideoManager, PlaybackState
@@ -98,6 +98,7 @@ class SeekSlider(QSlider):
         
         self._updating = False  # Prevent feedback loops
         self._user_seeking = False
+        self._total_duration_ms = 0  # FIXED: Initialize this
         
         self.sliderPressed.connect(self._on_pressed)
         self.sliderReleased.connect(self._on_released)
@@ -147,13 +148,16 @@ class SeekSlider(QSlider):
     def _on_pressed(self):
         """User started dragging"""
         self._user_seeking = True
+        logger.debug("Seek slider pressed - user dragging started")
     
     def _on_released(self):
         """User finished dragging - emit seek request"""
         self._user_seeking = False
         # Convert slider position (0-1000) to milliseconds
-        position_ms = int((self.value() / 1000.0) * self._total_duration_ms) if hasattr(self, '_total_duration_ms') else 0
-        self.seek_requested.emit(position_ms)
+        if self._total_duration_ms > 0:
+            position_ms = int((self.value() / 1000.0) * self._total_duration_ms)
+            logger.info(f"Seek slider released - requesting seek to {position_ms}ms")
+            self.seek_requested.emit(position_ms)
     
     def _on_value_changed(self, value):
         """Value changed (could be user or programmatic)"""
@@ -353,6 +357,7 @@ class ControlBar(QWidget):
     
     def _connect_video_manager(self):
         """Connect to video manager events"""
+        # FIXED: Use pyqtSlot decorator pattern for thread safety
         self.video_manager.on('on_playing', self._on_playing)
         self.video_manager.on('on_paused', self._on_paused)
         self.video_manager.on('on_stopped', self._on_stopped_event)
@@ -360,7 +365,9 @@ class ControlBar(QWidget):
         self.video_manager.on('on_state_changed', self._on_state_changed)
         
         # Set initial volume
-        self.volume_slider.setValue(self.video_manager.get_volume())
+        initial_volume = self.video_manager.get_volume()
+        logger.info(f"Setting initial volume slider to: {initial_volume}")
+        self.volume_slider.setValue(initial_volume)
     
     # ==========================================
     # Button Handlers
@@ -368,66 +375,88 @@ class ControlBar(QWidget):
     
     def _on_play_pause(self):
         """Handle play/pause button"""
+        logger.info("Play/Pause button clicked")
         self.video_manager.toggle_play_pause()
     
     def _on_stop(self):
         """Handle stop button"""
+        logger.info("Stop button clicked")
         self.video_manager.stop()
     
     def _on_skip_back(self):
         """Handle skip backward"""
+        logger.info("Skip backward button clicked")
         self.video_manager.skip_backward()
     
     def _on_skip_forward(self):
         """Handle skip forward"""
+        logger.info("Skip forward button clicked")
         self.video_manager.skip_forward()
     
     def _on_mute(self):
         """Handle mute toggle"""
+        logger.info("Mute button clicked")
         self.video_manager.toggle_mute()
         self._update_mute_button()
     
     def _on_volume_changed(self, volume: int):
         """Handle volume slider change"""
+        logger.debug(f"Volume slider changed to: {volume}")
         self.video_manager.set_volume(volume)
         self._update_mute_button()
     
     def _on_seek_requested(self, position_ms: int):
         """Handle seek slider release"""
+        logger.info(f"Seek requested to {position_ms}ms")
         self.video_manager.seek(position_ms)
-        logger.debug(f"Seek to {position_ms}ms")
     
     # ==========================================
     # Video Manager Event Handlers
     # ==========================================
     
+    @pyqtSlot()
     def _on_playing(self):
         """Called when playback starts"""
+        logger.info("Control bar received 'playing' event")
         self.btn_play_pause.setText("⏸")
         self.btn_play_pause.setToolTip("Pause (Space)")
-        self.update_timer.start()
+        if not self.update_timer.isActive():
+            logger.info("Starting update timer")
+            self.update_timer.start()
     
+    @pyqtSlot()
     def _on_paused(self):
         """Called when playback pauses"""
+        logger.info("Control bar received 'paused' event")
         self.btn_play_pause.setText("▶")
         self.btn_play_pause.setToolTip("Play (Space)")
         self.update_timer.stop()
     
+    @pyqtSlot()
     def _on_stopped_event(self):
         """Called when playback stops"""
+        logger.info("Control bar received 'stopped' event")
         self.btn_play_pause.setText("▶")
         self.update_timer.stop()
         self.seek_slider.setValue(0)
         self.time_current.setText("00:00:00")
     
+    @pyqtSlot(object, object)
     def _on_media_loaded(self, source, media_type):
         """Called when media is loaded"""
+        logger.info(f"Control bar received 'media_loaded' event for: {source}")
         total_ms = self.video_manager.get_total_duration()
+        logger.info(f"Total duration from video manager: {total_ms}ms")
         self.time_total.setText(self._format_time(total_ms))
         self.seek_slider.setEnabled(total_ms > 0)
+        
+        # CRITICAL: Force an immediate UI update
+        self._update_time_display()
     
+    @pyqtSlot(object, object)
     def _on_state_changed(self, old_state, new_state):
         """Called when state changes"""
+        logger.info(f"Control bar received state change: {old_state.name} -> {new_state.name}")
         # Enable/disable controls based on state
         has_media = new_state not in (PlaybackState.IDLE, PlaybackState.ERROR)
         self.btn_play_pause.setEnabled(has_media)
@@ -444,8 +473,10 @@ class ControlBar(QWidget):
         current_ms = self.video_manager.get_current_time()
         total_ms = self.video_manager.get_total_duration()
         
-        self.time_current.setText(self._format_time(current_ms))
-        self.seek_slider.update_position(current_ms, total_ms)
+        # FIXED: Add logging to debug time updates
+        if current_ms >= 0 and total_ms > 0:
+            self.time_current.setText(self._format_time(current_ms))
+            self.seek_slider.update_position(current_ms, total_ms)
     
     def _update_mute_button(self):
         """Update mute button appearance"""
